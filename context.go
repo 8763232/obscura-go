@@ -27,8 +27,10 @@ func (b *Browser) GetContext() context.Context {
 
 // Timeout 返回带超时的克隆。
 func (b *Browser) Timeout(d time.Duration) *Browser {
-	ctx, _ := context.WithTimeout(b.ctx, d)
-	return b.Context(ctx)
+	ctx, cancel := context.WithTimeout(b.ctx, d)
+	newB := b.Context(ctx)
+	newB.cancel = cancel
+	return newB
 }
 
 // WithCancel 返回带 cancel 的克隆。
@@ -53,8 +55,10 @@ func (p *Page) GetContext() context.Context {
 
 // Timeout 返回带超时的克隆。
 func (p *Page) Timeout(d time.Duration) *Page {
-	ctx, _ := context.WithTimeout(p.ctx, d)
-	return p.Context(ctx)
+	ctx, cancel := context.WithTimeout(p.ctx, d)
+	newP := p.Context(ctx)
+	newP.cancel = cancel
+	return newP
 }
 
 // WithCancel 返回带 cancel 的克隆。

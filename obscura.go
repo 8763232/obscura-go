@@ -16,7 +16,7 @@ type Browser struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	launchCleanup    func()
-	pagesMu          sync.Mutex
+	pagesMu          *sync.Mutex
 	pages            map[string]*Page
 	BrowserContextID string
 	timeout          time.Duration
@@ -30,6 +30,7 @@ func New() *Browser {
 		ctx:     ctx,
 		cancel:  cancel,
 		pages:   make(map[string]*Page),
+		pagesMu: &sync.Mutex{},
 		timeout: 30 * time.Second,
 	}
 }
@@ -104,7 +105,7 @@ func (b *Browser) NewIncognito(ctx context.Context) (*Browser, error) {
 		ctx:              b.ctx,
 		eventCh:          b.eventCh,
 		pages:            make(map[string]*Page),
-		pagesMu:          sync.Mutex{},
+		pagesMu:          &sync.Mutex{},
 		BrowserContextID: res.BrowserContextID,
 		timeout:          b.timeout,
 	}
