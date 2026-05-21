@@ -1,0 +1,66 @@
+package obscura
+
+import (
+	"context"
+	"time"
+)
+
+// Context 返回指定 context 的克隆。
+func (b *Browser) Context(ctx context.Context) *Browser {
+	b2 := *b
+	b2.ctx = ctx
+	return &b2
+}
+
+// GetContext 返回当前 context。
+func (b *Browser) GetContext() context.Context {
+	return b.ctx
+}
+
+// Timeout 返回带超时的克隆。
+func (b *Browser) Timeout(d time.Duration) *Browser {
+	ctx, _ := context.WithTimeout(b.ctx, d)
+	return b.Context(ctx)
+}
+
+// WithCancel 返回带 cancel 的克隆。
+func (b *Browser) WithCancel() (*Browser, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(b.ctx)
+	return b.Context(ctx), cancel
+}
+
+// Context 返回指定 context 的克隆。
+func (p *Page) Context(ctx context.Context) *Page {
+	p2 := *p
+	p2.ctx = ctx
+	return &p2
+}
+
+// GetContext 返回当前 context。
+func (p *Page) GetContext() context.Context {
+	return p.ctx
+}
+
+// Timeout 返回带超时的克隆。
+func (p *Page) Timeout(d time.Duration) *Page {
+	ctx, _ := context.WithTimeout(p.ctx, d)
+	return p.Context(ctx)
+}
+
+// WithCancel 返回带 cancel 的克隆。
+func (p *Page) WithCancel() (*Page, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(p.ctx)
+	return p.Context(ctx), cancel
+}
+
+// Context 返回指定 context 的克隆。
+func (el *Element) Context(ctx context.Context) *Element {
+	el2 := *el
+	el2.ctx = ctx
+	return &el2
+}
+
+// GetContext 返回当前 context。
+func (el *Element) GetContext() context.Context {
+	return el.ctx
+}
