@@ -99,10 +99,16 @@ func (b *Browser) NewIncognito(ctx context.Context) (*Browser, error) {
 		return nil, err
 	}
 
-	incog := *b
-	incog.BrowserContextID = res.BrowserContextID
-	incog.pages = make(map[string]*Page)
-	return &incog, nil
+	incog := &Browser{
+		client:           b.client,
+		ctx:              b.ctx,
+		eventCh:          b.eventCh,
+		pages:            make(map[string]*Page),
+		pagesMu:          sync.Mutex{},
+		BrowserContextID: res.BrowserContextID,
+		timeout:          b.timeout,
+	}
+	return incog, nil
 }
 
 // Pages 返回所有活跃页面。

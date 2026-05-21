@@ -7,9 +7,17 @@ import (
 
 // Context 返回指定 context 的克隆。
 func (b *Browser) Context(ctx context.Context) *Browser {
-	b2 := *b
-	b2.ctx = ctx
-	return &b2
+	return &Browser{
+		client:           b.client,
+		ctx:              ctx,
+		cancel:           b.cancel,
+		launchCleanup:    b.launchCleanup,
+		pages:            b.pages,
+		pagesMu:          b.pagesMu, // 共享同一个 mutex
+		BrowserContextID: b.BrowserContextID,
+		timeout:          b.timeout,
+		eventCh:          b.eventCh,
+	}
 }
 
 // GetContext 返回当前 context。
@@ -26,7 +34,9 @@ func (b *Browser) Timeout(d time.Duration) *Browser {
 // WithCancel 返回带 cancel 的克隆。
 func (b *Browser) WithCancel() (*Browser, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(b.ctx)
-	return b.Context(ctx), cancel
+	newB := b.Context(ctx)
+	newB.cancel = cancel
+	return newB, cancel
 }
 
 // Context 返回指定 context 的克隆。
