@@ -9,9 +9,10 @@ import (
 )
 
 type rpcRequest struct {
-	ID     int64           `json:"id"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params,omitempty"`
+	ID        int64           `json:"id"`
+	Method    string          `json:"method"`
+	Params    json.RawMessage `json:"params,omitempty"`
+	SessionID string          `json:"sessionId,omitempty"`
 }
 
 // 注意：已包含 SessionID 字段
@@ -84,10 +85,10 @@ func (c *Client) readLoop() {
 }
 
 // Call 发起 JSON-RPC 调用并等待响应。
-func (c *Client) Call(ctx context.Context, method string, params, result any) error {
+func (c *Client) Call(ctx context.Context, sessionID string, method string, params, result any) error {
 	id := atomic.AddInt64(&c.reqID, 1)
 
-	req := rpcRequest{ID: id, Method: method}
+	req := rpcRequest{ID: id, Method: method, SessionID: sessionID}
 	if params != nil {
 		data, err := json.Marshal(params)
 		if err != nil {

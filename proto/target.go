@@ -2,9 +2,10 @@ package proto
 
 // Target.createTarget
 type TargetCreateTarget struct {
-	URL    string `json:"url"`
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
+	URL              string `json:"url"`
+	Width            int    `json:"width,omitempty"`
+	Height           int    `json:"height,omitempty"`
+	BrowserContextID string `json:"browserContextId,omitempty"`
 }
 func (r TargetCreateTarget) Method() string { return "Target.createTarget" }
 

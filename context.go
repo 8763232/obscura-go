@@ -17,6 +17,7 @@ func (b *Browser) Context(ctx context.Context) *Browser {
 		BrowserContextID: b.BrowserContextID,
 		timeout:          b.timeout,
 		eventCh:          b.eventCh,
+		subscribers:      b.subscribers,
 	}
 }
 

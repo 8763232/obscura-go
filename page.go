@@ -24,13 +24,29 @@ type Page struct {
 func (p *Page) Navigate(ctx context.Context, url string) error {
 	p.frameID = ""
 
+	// 提前订阅事件，避免竞态
+	id, ch := p.browser.subscribe()
+	defer p.browser.unsubscribe(id)
+
 	var navRes proto.PageNavigateResult
 	if err := p.browser.callResult(ctx, p.sessionID, proto.PageNavigate{URL: url}, &navRes); err != nil {
 		return err
 	}
 	p.frameID = navRes.FrameID
 
-	return p.waitLoadEvent(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case e, ok := <-ch:
+			if !ok {
+				return ctx.Err()
+			}
+			if e.Method == "Page.loadEventFired" && (p.sessionID == "" || e.SessionID == p.sessionID) {
+				return nil
+			}
+		}
+	}
 }
 
 // WaitUntil 等待指定事件。
@@ -46,38 +62,40 @@ func (p *Page) WaitUntil(ctx context.Context, condition string) error {
 }
 
 func (p *Page) waitLoadEvent(ctx context.Context) error {
-	ch := make(chan struct{})
-	go func() {
-		defer close(ch)
-		for e := range p.browser.eventCh {
+	id, ch := p.browser.subscribe()
+	defer p.browser.unsubscribe(id)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case e, ok := <-ch:
+			if !ok {
+				return ctx.Err()
+			}
 			if e.Method == "Page.loadEventFired" && (p.sessionID == "" || e.SessionID == p.sessionID) {
-				return
+				return nil
 			}
 		}
-	}()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-ch:
-		return nil
 	}
 }
 
 func (p *Page) waitDOMContentEvent(ctx context.Context) error {
-	ch := make(chan struct{})
-	go func() {
-		defer close(ch)
-		for e := range p.browser.eventCh {
+	id, ch := p.browser.subscribe()
+	defer p.browser.unsubscribe(id)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case e, ok := <-ch:
+			if !ok {
+				return ctx.Err()
+			}
 			if e.Method == "Page.domContentEventFired" && (p.sessionID == "" || e.SessionID == p.sessionID) {
-				return
+				return nil
 			}
 		}
-	}()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-ch:
-		return nil
 	}
 }
 

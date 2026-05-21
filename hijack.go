@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/8763232/obscura-go/cdp"
 	"github.com/8763232/obscura-go/proto"
 )
 
@@ -78,19 +77,8 @@ func (r *HijackRouter) Run() {
 }
 
 func (r *HijackRouter) eventLoop() {
-	ch := make(chan *cdp.Event, 64)
-	go func() {
-		defer close(ch)
-		for e := range r.browser.eventCh {
-			if e.Method == "Fetch.requestPaused" && (r.sessionID == "" || e.SessionID == r.sessionID) {
-				select {
-				case <-r.ctx.Done():
-					return
-				case ch <- e:
-				}
-			}
-		}
-	}()
+	id, ch := r.browser.subscribe()
+	defer r.browser.unsubscribe(id)
 
 	for {
 		select {
@@ -99,6 +87,9 @@ func (r *HijackRouter) eventLoop() {
 		case e, ok := <-ch:
 			if !ok {
 				return
+			}
+			if e.Method != "Fetch.requestPaused" || (r.sessionID != "" && e.SessionID != r.sessionID) {
+				continue
 			}
 			var paused proto.FetchRequestPaused
 			if err := json.Unmarshal(e.Params, &paused); err != nil {
@@ -131,11 +122,9 @@ func (r *HijackRouter) handlePaused(e *proto.FetchRequestPaused) {
 	}
 
 	// 匹配并执行 handler
-	matched := false
 	r.mu.Lock()
 	for _, h := range r.handlers {
 		if h.regexp.MatchString(e.Request.URL) {
-			matched = true
 			r.mu.Unlock()
 			h.handler(r.ctx, req, res)
 			r.mu.Lock()
@@ -189,12 +178,10 @@ func (r *HijackRouter) handlePaused(e *proto.FetchRequestPaused) {
 		})
 
 	default:
-		// 默认：原样继续
-		if matched {
-			r.browser.call(context.Background(), r.sessionID, proto.FetchContinueRequest{
-				RequestID: e.RequestID,
-			})
-		}
+		// 默认：继续请求（所有暂停的请求都必须回复ContinueRequest）
+		r.browser.call(context.Background(), r.sessionID, proto.FetchContinueRequest{
+			RequestID: e.RequestID,
+		})
 	}
 }
 
