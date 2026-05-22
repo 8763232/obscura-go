@@ -1,3 +1,6 @@
+# macOS
+.DS_Store
+
 # 编译产物
 obscura-go
 
