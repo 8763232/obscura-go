@@ -2,6 +2,9 @@ package obscura
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -115,6 +118,35 @@ func (b *Browser) Launch(ctx context.Context, opts ...func(*launcher.Launcher)) 
 	return b.Connect(ctx, wsURL)
 }
 
+// Serve 直接启动本地的 obscura 二进制（跳过下载），并连接 CDP。
+// 默认从 .cache/obscura-go/latest/obscura 查找，可用 WithBinPath 指定路径。
+func (b *Browser) Serve(ctx context.Context, opts ...func(*launcher.Launcher)) error {
+	// 默认使用缓存目录中的二进制
+	binName := "obscura"
+	if runtime.GOOS == "windows" {
+		binName = "obscura.exe"
+	}
+	defaultBin := filepath.Join(".cache", "obscura-go", "latest", binName)
+	if _, err := os.Stat(defaultBin); err != nil {
+		// 回退：从 launcher 目录查找
+		defaultBin = filepath.Join("launcher", runtime.GOOS+"_"+runtime.GOARCH, "latest", binName)
+	}
+
+	l := launcher.New()
+	l.BinPath = defaultBin
+	for _, o := range opts {
+		o(l)
+	}
+
+	wsURL, cleanup, err := l.Launch(ctx)
+	if err != nil {
+		return err
+	}
+	b.launchCleanup = cleanup
+
+	return b.Connect(ctx, wsURL)
+}
+
 // WithVersion 设置下载版本。
 func WithVersion(v string) func(*launcher.Launcher) {
 	return func(l *launcher.Launcher) { l.Version = v }
@@ -133,6 +165,11 @@ func WithStealth() func(*launcher.Launcher) {
 // WithProxy 设置代理。
 func WithProxy(proxy string) func(*launcher.Launcher) {
 	return func(l *launcher.Launcher) { l.Proxy = proxy }
+}
+
+// WithBinPath 直接指定 obscura 二进制路径，跳过下载。
+func WithBinPath(p string) func(*launcher.Launcher) {
+	return func(l *launcher.Launcher) { l.BinPath = p }
 }
 
 // IgnoreCertErrors 忽略 HTTPS 证书错误。

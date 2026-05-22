@@ -15,7 +15,7 @@ func main() {
 	defer cancel()
 
 	browser := obscura.New()
-	if err := browser.Launch(ctx); err != nil {
+	if err := browser.Serve(ctx); err != nil {
 		log.Fatalf("启动 obscura 失败: %v", err)
 	}
 	defer browser.Close()

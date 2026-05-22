@@ -13,6 +13,7 @@ import (
 // Launcher 管理 obscura 进程的启动。
 type Launcher struct {
 	Version string // "latest" 或具体版本号
+	BinPath string // 直接指定 obscura 二进制路径，跳过下载
 	Port    int    // 0 = 随机端口
 	Proxy   string // HTTP/SOCKS5 代理
 	Stealth bool   // 反检测模式
@@ -34,21 +35,33 @@ func New() *Launcher {
 }
 
 // Launch 下载（如需要）并启动 obscura serve 进程。
+// 如果 BinPath 已设置，跳过下载直接启动。
 // 返回 CDP WebSocket URL 和 cleanup 函数。
 func (l *Launcher) Launch(ctx context.Context) (wsURL string, cleanup func(), err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// 传递 Version 到 browser（仅当设置时覆盖默认值）
-	if l.Version != "" {
-		l.browser.Version = l.Version
+	var binPath string
+
+	if l.BinPath != "" {
+		binPath = l.BinPath
+	} else {
+		// 传递 Version 到 browser（仅当设置时覆盖默认值）
+		if l.Version != "" {
+			l.browser.Version = l.Version
+		}
+		binPath, err = l.browser.Get(ctx)
+		if err != nil {
+			return "", nil, err
+		}
 	}
 
-	binPath, err := l.browser.Get(ctx)
-	if err != nil {
-		return "", nil, err
-	}
+	wsURL, cleanup, err = l.startAndWait(ctx, binPath)
+	return
+}
 
+// startAndWait 启动 obscura serve 并等待就绪。
+func (l *Launcher) startAndWait(ctx context.Context, binPath string) (wsURL string, cleanup func(), err error) {
 	port := l.Port
 	if port == 0 {
 		p, err := randomPort()
