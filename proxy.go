@@ -3,15 +3,10 @@ package obscura
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"fmt"
 	"io"
 	"log"
-	"math/big"
 	"net"
 	"net/http"
 	"strings"
@@ -179,23 +174,8 @@ func (p *ProxyServer) getCert(host string) tls.Certificate {
 	if cert, ok := p.certs[host]; ok {
 		return cert
 	}
-	cert, _ := generateCert(host)
+	// 用 MITM CA 签发每主机证书（而非自签），obscura 信任此 CA
+	cert, _ := signHostCert(host)
 	p.certs[host] = cert
 	return cert
-}
-
-func generateCert(host string) (tls.Certificate, error) {
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: host},
-		DNSNames:     []string{host},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
