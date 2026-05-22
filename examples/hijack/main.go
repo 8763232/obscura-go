@@ -38,6 +38,9 @@ func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 	page, _ := browser.NewPage(ctx)
 
 	router := page.HijackRequests()
+	// 使用自定义 HTTP 客户端：跳过 TLS 验证。默认自动跟随重定向，
+	// 如需手动控制重定向，设置 CheckRedirect: http.ErrUseLastResponse
+	// 并在 handler 的响应阶段（StatusCode==301/302）处理 res.Follow()/FollowTo()
 	router.HTTPClient = &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -46,17 +49,24 @@ func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 	}
 
 	router.Add("*", "", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
-		if req.StatusCode != 0 {
+		// 响应阶段：处理重定向
+		if req.StatusCode == 301 || req.StatusCode == 302 {
+			location := req.ResponseHeaders["Location"]
+			fmt.Printf("  [Redirect] %d → %s\n", req.StatusCode, location)
+			res.Follow() // 让 obscura 跟随重定向
 			return
 		}
-		fmt.Printf("  [Proxy] %s %s\n", req.Method, req.URL)
+		// 请求阶段：Go 端代理请求
+		if req.StatusCode == 0 {
+			fmt.Printf("  [Proxy] %s %s\n", req.Method, req.URL)
 
-		if err := req.LoadResponse(router.HTTPClient, res); err != nil {
-			fmt.Printf("  [Proxy] 请求失败: %v\n", err)
-			res.Fail("Failed")
-			return
+			if err := req.LoadResponse(router.HTTPClient, res); err != nil {
+				fmt.Printf("  [Proxy] 请求失败: %v\n", err)
+				res.Fail("Failed")
+				return
+			}
+			fmt.Printf("  [Proxy] → %d (%d字节)\n", res.StatusCode, len(res.Body))
 		}
-		fmt.Printf("  [Proxy] → %d (%d字节)\n", res.StatusCode, len(res.Body))
 	})
 
 	router.Run()
