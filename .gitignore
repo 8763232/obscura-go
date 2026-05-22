@@ -1,0 +1,17 @@
+# 编译产物
+obscura-go
+
+# Launcher 缓存
+.cache/
+
+# 测试截图
+screenshot.png
+
+# IDE
+.idea/
+obscura-go.iml
+
+# 参考代码（非项目源码）
+chromedp/
+rod/
+obscura/

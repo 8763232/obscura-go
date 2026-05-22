@@ -33,7 +33,7 @@ func binName() string {
 
 // defaultCacheDir 返回默认缓存目录（当前执行目录下的 .cache/obscura-go）。
 func defaultCacheDir() string {
-	return filepath.Join(".cache", "obscura-go")
+	return filepath.Join("./", ".cache", "obscura-go")
 }
 
 // Browser 管理 obscura 二进制的下载。

@@ -61,7 +61,7 @@ func main() {
 	defer router.Stop()
 
 	fmt.Println("导航到目标页面...")
-	if err := page.Navigate(ctx, "https://httpbin.org/redirect/1"); err != nil {
+	if err := page.Navigate(ctx, "https://ip111.cn"); err != nil {
 		log.Fatalf("导航失败: %v", err)
 	}
 

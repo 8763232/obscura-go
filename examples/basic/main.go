@@ -25,7 +25,7 @@ func main() {
 		log.Fatalf("创建页面失败: %v", err)
 	}
 
-	if err := page.Navigate(ctx, "https://news.ycombinator.com"); err != nil {
+	if err := page.Navigate(ctx, "https://ip111.cn"); err != nil {
 		log.Fatalf("导航失败: %v", err)
 	}
 	fmt.Println("页面加载完成")
