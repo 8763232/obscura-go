@@ -1,5 +1,10 @@
 package obscura
 
+import (
+	"io"
+	"net/http"
+)
+
 // HijackRequest 是拦截到的网络请求。
 type HijackRequest struct {
 	URL    string
@@ -18,6 +23,8 @@ type HijackRequest struct {
 	newMethod  string
 	newHeaders map[string]string
 	newBody    string
+
+	req *http.Request // 从 CDP 事件构建，供 LoadResponse 使用
 }
 
 // Continue 标记此请求继续（修改后或原样）。
@@ -94,4 +101,34 @@ func (r *HijackResponse) Follow() {
 func (r *HijackResponse) FollowTo(newURL string) {
 	r.modified = true
 	r.FollowURL = newURL
+}
+
+// LoadResponse 使用指定的 HTTP 客户端发起真实网络请求，并将响应注入到 HijackResponse。
+// 调用后 handler 中无需再调用 res.Fulfill，响应已自动设置。
+// 如果 client 为 nil，使用 http.DefaultClient。
+func (req *HijackRequest) LoadResponse(client *http.Client, res *HijackResponse) error {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	httpResp, err := client.Do(req.req)
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return err
+	}
+
+	headers := make(map[string]string)
+	for k, vs := range httpResp.Header {
+		if len(vs) > 0 {
+			headers[k] = vs[0]
+		}
+	}
+
+	res.Fulfill(httpResp.StatusCode, headers, string(body))
+	return nil
 }

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	obscura "github.com/8763232/obscura-go"
@@ -24,52 +26,43 @@ func main() {
 		log.Fatalf("创建页面失败: %v", err)
 	}
 
-	// 设置网络拦截
+	// 设置网络拦截 — 在 Navigate 之前
 	router := page.HijackRequests()
 
-	// 拦截特定 API 返回 mock 数据
-	router.Add("*", "XHR", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
-		fmt.Printf("[Mock] 拦截 API 请求: %s %s\n", req.Method, req.URL)
-		//res.Fulfill(200,
-		//	map[string]string{"Content-Type": "application/json"},
-		//	`{"message": "mock data from obscura-go"}`)
-	})
+	// 自定义 HTTP 客户端：跳过 TLS 验证（解决自签名/过期证书问题）
+	router.HTTPClient = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: 30 * time.Second,
+	}
 
-	// 控制重定向
+	// 对所有请求：Go 端代理发起真实 HTTP 请求，注入响应回 obscura
 	router.Add("*", "", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
-		// 响应阶段：检查重定向
-		if req.StatusCode == 301 || req.StatusCode == 302 {
-			location := req.ResponseHeaders["Location"]
-			fmt.Printf("[Redirect] %d → %s\n", req.StatusCode, location)
+		if req.StatusCode != 0 {
+			return // 响应阶段不处理
+		}
+		fmt.Printf("[Proxy] %s %s\n", req.Method, req.URL)
 
-			if location != "" && len(location) > 100 {
-				fmt.Println("[Redirect] 阻止可疑的长 URL 重定向")
-				res.Fail("BlockedByClient")
-				return
-			}
-			res.Follow()
+		if err := req.LoadResponse(router.HTTPClient, res); err != nil {
+			fmt.Printf("[Proxy] 请求失败: %v\n", err)
+			res.Fail("Failed")
 			return
 		}
-
-		// 请求阶段：打印所有请求
-		if req.StatusCode == 0 {
-			fmt.Printf("[Request] %s %s (%s)\n", req.Method, req.URL, req.Type)
-		}
+		fmt.Printf("[Proxy] 响应: %d, body=%d字节\n", res.StatusCode, len(res.Body))
 	})
 
 	router.Run()
 	defer router.Stop()
 
-	// 忽略 HTTPS 证书错误（某些网站证书可能有问题）
-	if err := browser.IgnoreCertErrors(true); err != nil {
-		log.Fatalf("设置忽略证书错误失败: %v", err)
-	}
-
 	fmt.Println("导航到目标页面...")
-	if err := page.Navigate(ctx, "https://login.teamviewer.com/Cmd/ActivateAccount?lng=zhcn&token=f865bfb8-99c9-4dbe-9c30-5b1b109a9bd4"); err != nil {
+	err = page.Navigate(ctx, "https://login.teamviewer.com/Cmd/ActivateAccount?lng=zhcn&token=f865bfb8-99c9-4dbe-9c30-5b1b109a9bd4")
+	if err != nil {
 		log.Fatalf("导航失败: %v", err)
 	}
 
-	time.Sleep(2 * time.Second)
+	var title string
+	page.Evaluate(ctx, "document.title", &title)
+	fmt.Printf("页面标题: %s\n", title)
 	fmt.Println("完成")
 }

@@ -3,6 +3,8 @@ package obscura
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -20,6 +22,10 @@ type HijackRouter struct {
 	cancel    context.CancelFunc
 	mu        sync.Mutex
 	running   bool
+
+	// HTTPClient 是 LoadResponse 使用的 HTTP 客户端。
+	// 设置为 nil 时使用 http.DefaultClient。
+	HTTPClient *http.Client
 }
 
 type hijackHandlerItem struct {
@@ -101,6 +107,14 @@ func (r *HijackRouter) eventLoop() {
 }
 
 func (r *HijackRouter) handlePaused(e *proto.FetchRequestPaused) {
+	// 构建 Go 端 http.Request，供 LoadResponse 使用
+	u, _ := url.Parse(e.Request.URL)
+	httpReq, _ := http.NewRequest(e.Request.Method, e.Request.URL, strings.NewReader(e.Request.PostData))
+	httpReq.URL = u
+	for k, v := range e.Request.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
 	req := &HijackRequest{
 		URL:             e.Request.URL,
 		Method:          e.Request.Method,
@@ -109,6 +123,7 @@ func (r *HijackRouter) handlePaused(e *proto.FetchRequestPaused) {
 		Type:            e.ResourceType,
 		StatusCode:      e.ResponseStatusCode,
 		ResponseHeaders: make(map[string]string),
+		req:             httpReq,
 	}
 
 	for _, h := range e.ResponseHeaders {

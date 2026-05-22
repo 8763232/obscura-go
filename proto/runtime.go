@@ -5,6 +5,7 @@ type RuntimeEvaluate struct {
 	Expression    string `json:"expression"`
 	ObjectGroup   string `json:"objectGroup,omitempty"`
 	ReturnByValue bool   `json:"returnByValue,omitempty"`
+	AwaitPromise  bool   `json:"awaitPromise,omitempty"`
 }
 func (r RuntimeEvaluate) Method() string { return "Runtime.evaluate" }
 

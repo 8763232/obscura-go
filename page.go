@@ -117,6 +117,25 @@ func (p *Page) Evaluate(ctx context.Context, expression string, result any) erro
 	return nil
 }
 
+// EvaluateAsync 执行异步 JavaScript 表达式（自动等待 Promise 解析）。
+func (p *Page) EvaluateAsync(ctx context.Context, expression string, result any) error {
+	var res proto.RuntimeEvaluateResult
+	if err := p.browser.callResult(ctx, p.sessionID, proto.RuntimeEvaluate{
+		Expression:    expression,
+		ReturnByValue: true,
+		AwaitPromise:  true,
+	}, &res); err != nil {
+		return err
+	}
+	if res.ExceptionDetails != nil {
+		return &Error{Message: "JS 执行异常"}
+	}
+	if res.Result != nil && res.Result.Value != nil && result != nil {
+		return decodeValue(res.Result.Value, result)
+	}
+	return nil
+}
+
 // Element 通过 CSS 选择器查找单个元素。
 func (p *Page) Element(ctx context.Context, selector string) (*Element, error) {
 	var docRes proto.DOMGetDocumentResult
