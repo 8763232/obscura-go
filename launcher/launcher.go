@@ -27,6 +27,7 @@ type Launcher struct {
 func New() *Launcher {
 	return &Launcher{
 		browser: NewBrowser(),
+		Version: "latest",
 		Port:    0,
 		Workers: 1,
 	}
@@ -38,8 +39,10 @@ func (l *Launcher) Launch(ctx context.Context) (wsURL string, cleanup func(), er
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// 传递 Version 到 browser
-	l.browser.Version = l.Version
+	// 传递 Version 到 browser（仅当设置时覆盖默认值）
+	if l.Version != "" {
+		l.browser.Version = l.Version
+	}
 
 	binPath, err := l.browser.Get(ctx)
 	if err != nil {
