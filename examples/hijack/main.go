@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"time"
@@ -17,21 +16,21 @@ func main() {
 	defer cancel()
 
 	browser := obscura.New()
-	if err := browser.Serve(ctx, obscura.WithStealth()); err != nil {
-		log.Fatalf("启动 obscura 失败: %v", err)
+	if err := browser.Connect(ctx, "ws://127.0.0.1:9222/devtools/browser"); err != nil {
+		log.Fatalf("连接 obscura 失败: %v", err)
 	}
 	defer browser.Close()
 
-	// === 示例 1：正常证书 URL，LoadResponse 代理主文档 ===
+	// === 示例 1：LoadResponse 代理模式 ===
 	fmt.Println("=== 示例 1: LoadResponse 代理模式 ===")
 	demoLoadResponse(ctx, browser)
 
-	// === 示例 2：自签/过期证书 URL，Go 端获取后注入 ===
-	fmt.Println("\n=== 示例 2: Go 端获取 + 注入页面内容 ===")
-	demoInjectContent(ctx, browser)
+	// === 示例 2：mock 响应（不发起网络请求） ===
+	fmt.Println("\n=== 示例 2: Mock 响应 ===")
+	demoMock(ctx, browser)
 }
 
-// demoLoadResponse 演示对正常证书 URL 的代理拦截
+// demoLoadResponse: 对所有请求用 Go HTTP 客户端代理
 func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 	page, _ := browser.NewPage(ctx)
 
@@ -45,11 +44,12 @@ func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 
 	router.Add("*", "", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
 		if req.StatusCode != 0 {
-			return
+			return // 跳过响应阶段
 		}
 		fmt.Printf("  [Proxy] %s %s\n", req.Method, req.URL)
+
 		if err := req.LoadResponse(router.HTTPClient, res); err != nil {
-			fmt.Printf("  [Proxy] 失败: %v\n", err)
+			fmt.Printf("  [Proxy] 请求失败: %v\n", err)
 			res.Fail("Failed")
 			return
 		}
@@ -60,39 +60,36 @@ func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 	defer router.Stop()
 
 	page.Navigate(ctx, "https://httpbin.org/get")
-	var title string
-	page.Evaluate(ctx, "document.title", &title)
-	fmt.Printf("  标题: %s\n", title)
 }
 
-// demoInjectContent 演示绕过 obscura TLS：Go 端获取 HTML，注入到页面
-func demoInjectContent(ctx context.Context, browser *obscura.Browser) {
-	// 1. Go 端用自定义 HTTP 客户端获取内容
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		Timeout: 30 * time.Second,
-	}
-
-	resp, err := client.Get("https://login.teamviewer.com/Cmd/ActivateAccount?lng=zhcn&token=f865bfb8-99c9-4dbe-9c30-5b1b109a9bd4")
-	if err != nil {
-		log.Printf("  Go 端请求失败: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-	fmt.Printf("  Go 端获取: %d, %d字节\n", resp.StatusCode, len(html))
-
-	// 2. 导航到 about:blank
+// demoMock: 直接返回 mock 数据，不发起真实网络请求
+func demoMock(ctx context.Context, browser *obscura.Browser) {
 	page, _ := browser.NewPage(ctx)
-	page.Navigate(ctx, "about:blank")
 
-	// 3. 注入 HTML 内容
-	page.Evaluate(ctx, fmt.Sprintf("document.write(%q); document.close();", html), nil)
+	router := page.HijackRequests()
 
-	var title string
-	page.Evaluate(ctx, "document.title", &title)
-	fmt.Printf("  标题: %s\n", title)
+	router.Add("*/api/*", "XHR", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
+		fmt.Printf("  [Mock] %s %s → 返回 mock JSON\n", req.Method, req.URL)
+		res.Fulfill(200,
+			map[string]string{"Content-Type": "application/json"},
+			`{"users": [{"id": 1, "name": "test"}]}`)
+	})
+
+	router.Add("*", "", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
+		if req.StatusCode != 0 {
+			// 响应阶段：处理重定向
+			if req.StatusCode == 301 || req.StatusCode == 302 {
+				fmt.Printf("  [Redirect] %d → %s\n", req.StatusCode,
+					req.ResponseHeaders["Location"])
+				res.Follow()
+			}
+			return
+		}
+		fmt.Printf("  [Request] %s %s (%s)\n", req.Method, req.URL, req.Type)
+	})
+
+	router.Run()
+	defer router.Stop()
+
+	page.Navigate(ctx, "https://httpbin.org/get")
 }
