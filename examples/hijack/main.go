@@ -16,7 +16,7 @@ func main() {
 	defer cancel()
 
 	browser := obscura.New()
-	if err := browser.Connect(ctx, "ws://127.0.0.1:9222/devtools/browser"); err != nil {
+	if err := browser.Serve(ctx, obscura.WithStealth()); err != nil {
 		log.Fatalf("连接 obscura 失败: %v", err)
 	}
 	defer browser.Close()
@@ -25,12 +25,11 @@ func main() {
 	fmt.Println("=== 示例 1: LoadResponse 代理模式 ===")
 	demoLoadResponse(ctx, browser)
 
-	// === 示例 2：mock 响应（不发起网络请求） ===
+	// === 示例 2：Mock 响应 ===
 	fmt.Println("\n=== 示例 2: Mock 响应 ===")
 	demoMock(ctx, browser)
 }
 
-// demoLoadResponse: 对所有请求用 Go HTTP 客户端代理
 func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 	page, _ := browser.NewPage(ctx)
 
@@ -44,7 +43,7 @@ func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 
 	router.Add("*", "", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
 		if req.StatusCode != 0 {
-			return // 跳过响应阶段
+			return
 		}
 		fmt.Printf("  [Proxy] %s %s\n", req.Method, req.URL)
 
@@ -59,10 +58,15 @@ func demoLoadResponse(ctx context.Context, browser *obscura.Browser) {
 	router.Run()
 	defer router.Stop()
 
-	page.Navigate(ctx, "https://httpbin.org/get")
+	// 忽略证书错误，通过 Go 端代理发起请求
+	browser.IgnoreCertErrors(true)
+	page.Navigate(ctx, "https://login.teamviewer.com/Cmd/ActivateAccount?lng=zhcn&token=f865bfb8-99c9-4dbe-9c30-5b1b109a9bd4")
+
+	var title string
+	page.Evaluate(ctx, "document.title", &title)
+	fmt.Printf("  标题: %s\n", title)
 }
 
-// demoMock: 直接返回 mock 数据，不发起真实网络请求
 func demoMock(ctx context.Context, browser *obscura.Browser) {
 	page, _ := browser.NewPage(ctx)
 
@@ -77,10 +81,8 @@ func demoMock(ctx context.Context, browser *obscura.Browser) {
 
 	router.Add("*", "", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
 		if req.StatusCode != 0 {
-			// 响应阶段：处理重定向
 			if req.StatusCode == 301 || req.StatusCode == 302 {
-				fmt.Printf("  [Redirect] %d → %s\n", req.StatusCode,
-					req.ResponseHeaders["Location"])
+				fmt.Printf("  [Redirect] %d → %s\n", req.StatusCode, req.ResponseHeaders["Location"])
 				res.Follow()
 			}
 			return
