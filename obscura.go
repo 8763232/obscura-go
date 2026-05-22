@@ -143,7 +143,6 @@ func (b *Browser) Serve(ctx context.Context, opts ...func(*launcher.Launcher)) e
 		return err
 	}
 	b.launchCleanup = cleanup
-
 	return b.Connect(ctx, wsURL)
 }
 
