@@ -31,10 +31,9 @@ func binName() string {
 	return "obscura"
 }
 
-// defaultCacheDir 返回默认缓存目录。
+// defaultCacheDir 返回默认缓存目录（当前执行目录下的 .cache/obscura-go）。
 func defaultCacheDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "obscura-go")
+	return filepath.Join(".cache", "obscura-go")
 }
 
 // Browser 管理 obscura 二进制的下载。
@@ -101,7 +100,8 @@ func (b *Browser) validate(binPath string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(binPath, "--version")
+	// obscura 无 --version，用 -h 验证可执行性
+	cmd := exec.Command(binPath, "-h")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("无法执行 obscura: %w", err)
 	}
