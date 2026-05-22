@@ -16,6 +16,10 @@ func main() {
 	defer cancel()
 
 	browser := obscura.New()
+	//if err := browser.Connect(ctx, "ws://127.0.0.1:9222"); err != nil {
+	//	log.Fatalf("连接 obscura 失败: %v", err)
+	//}
+
 	if err := browser.Serve(ctx, obscura.WithStealth()); err != nil {
 		log.Fatalf("连接 obscura 失败: %v", err)
 	}
