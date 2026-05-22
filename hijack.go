@@ -2,6 +2,7 @@ package obscura
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -157,7 +158,7 @@ func (r *HijackRouter) handlePaused(e *proto.FetchRequestPaused) {
 			RequestID:       e.RequestID,
 			ResponseCode:    res.StatusCode,
 			ResponseHeaders: headerMapToEntries(res.Headers),
-			Body:            res.Body,
+			Body:            base64.StdEncoding.EncodeToString([]byte(res.Body)),
 		})
 
 	case res.failed:
