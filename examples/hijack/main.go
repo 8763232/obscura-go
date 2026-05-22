@@ -41,7 +41,7 @@ func main() {
 			}
 		},
 	}
-
+	proxy.Port = 57187
 	proxyAddr, err := proxy.Start()
 	if err != nil {
 		log.Fatalf("启动代理失败: %v", err)
@@ -63,7 +63,11 @@ func main() {
 	fmt.Println("\n导航到目标页面...")
 	page.Navigate(ctx, "https://login.teamviewer.com/Cmd/ActivateAccount?lng=zhcn&token=f865bfb8-99c9-4dbe-9c30-5b1b109a9bd4")
 
+	time.Sleep(3 * time.Second)
+	html, _ := page.HTML(ctx)
+	fmt.Printf("HTML长度: %d\n", len(html))
+
 	var title string
 	page.Evaluate(ctx, "document.title", &title)
-	fmt.Printf("\n标题: %s\n", title)
+	fmt.Printf("标题: %s\n", title)
 }

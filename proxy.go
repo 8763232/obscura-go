@@ -14,30 +14,30 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 )
 
 // ProxyServer 是一个本地 MITM HTTP/HTTPS 代理。
-// obscura 通过 --proxy http://127.0.0.1:<port> 将全部流量路由到此代理。
-// HTTP 请求直接转发；HTTPS CONNECT 请求做 MITM 解密后转发。
+// obscura 通过 --proxy http://127.0.0.1:<port> 路由流量到此代理。
+// HTTP 请求直接转发（完整可见）；HTTPS CONNECT 做 MITM 解密后转发。
+// obscura 已硬编码 danger_accept_invalid_certs(true)，接受代理的自签证书。
 type ProxyServer struct {
-	Port       int        // 0 = 随机端口
+	Port       int
 	HTTPClient *http.Client
 
 	ln      net.Listener
+	srv     *http.Server
 	certs   map[string]tls.Certificate
 	certMu  sync.Mutex
-	srv     *http.Server
 
-	// OnRequest 在请求发出前调用，可修改 req。
-	OnRequest func(req *http.Request)
-	// OnResponse 在收到响应后调用。
+	OnRequest  func(req *http.Request)
 	OnResponse func(req *http.Request, resp *http.Response)
+	OnConnect  func(host string)
 }
 
-// Start 启动代理服务器，返回实际监听的地址。
+// Start 启动代理服务器。
 func (p *ProxyServer) Start() (addr string, err error) {
 	if p.HTTPClient == nil {
 		p.HTTPClient = &http.Client{
@@ -61,7 +61,6 @@ func (p *ProxyServer) Start() (addr string, err error) {
 	return addr, nil
 }
 
-// Stop 停止代理服务器。
 func (p *ProxyServer) Stop() error {
 	if p.ln != nil {
 		return p.ln.Close()
@@ -77,32 +76,25 @@ func (p *ProxyServer) handle(w http.ResponseWriter, r *http.Request) {
 	p.handleHTTP(w, r)
 }
 
-// handleHTTP 处理普通 HTTP 请求（非 CONNECT）。
 func (p *ProxyServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	// 构造目标 URL
 	targetURL := r.URL.String()
 	if r.URL.Host == "" {
 		targetURL = fmt.Sprintf("http://%s%s", r.Host, r.URL.Path)
 	}
-
 	outReq, _ := http.NewRequestWithContext(context.Background(), r.Method, targetURL, r.Body)
 	outReq.Header = r.Header.Clone()
-
 	if p.OnRequest != nil {
 		p.OnRequest(outReq)
 	}
-
 	resp, err := p.HTTPClient.Do(outReq)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
-
 	if p.OnResponse != nil {
 		p.OnResponse(outReq, resp)
 	}
-
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
@@ -112,8 +104,11 @@ func (p *ProxyServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-// handleConnect 处理 HTTPS CONNECT（MITM 模式）。
 func (p *ProxyServer) handleConnect(w http.ResponseWriter, r *http.Request) {
+	if p.OnConnect != nil {
+		p.OnConnect(r.Host)
+	}
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
@@ -123,12 +118,13 @@ func (p *ProxyServer) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	defer client.Close()
 
-	// 告诉 obscura 隧道已建立
 	client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	// 生成自签证书（obscura 启用了 IgnoreCertErrors，会接受）
-	cert := p.getCert(r.Host)
+	// MITM: 自签证书做 TLS（obscura 已 hardcode danger_accept_invalid_certs(true)）
+	host := strings.Split(r.Host, ":")[0]
+	cert := p.getCert(host)
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
@@ -136,17 +132,19 @@ func (p *ProxyServer) handleConnect(w http.ResponseWriter, r *http.Request) {
 	tlsClient := tls.Server(client, tlsCfg)
 	defer tlsClient.Close()
 
-	// 在 TLS 连接上循环读取 HTTP 请求
+	if err := tlsClient.Handshake(); err != nil {
+		log.Printf("[Proxy] TLS握手失败 (%s): %v", host, err)
+		return
+	}
+
 	buf := bufio.NewReader(tlsClient)
 	for {
 		req, err := http.ReadRequest(buf)
 		if err != nil {
 			return
 		}
-
-		// 补全请求 URL（从 CONNECT 中解析出的，这里用绝对 URL）
 		req.URL.Scheme = "https"
-		req.URL.Host = strings.Split(r.Host, ":")[0]
+		req.URL.Host = host
 		req.RequestURI = ""
 
 		if p.OnRequest != nil {
@@ -157,12 +155,10 @@ func (p *ProxyServer) handleConnect(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("[Proxy] 请求失败: %v", err)
 			resp = &http.Response{
-				StatusCode: http.StatusBadGateway,
-				Status:     "502 Bad Gateway",
-				ProtoMajor: 1, ProtoMinor: 1,
-				Header:        http.Header{},
-				Body:          io.NopCloser(strings.NewReader("")),
-				ContentLength: 0,
+				StatusCode: http.StatusBadGateway, Status: "502 Bad Gateway",
+				ProtoMajor: 1, ProtoMinor: 1, ContentLength: 0,
+				Header: http.Header{},
+				Body:   io.NopCloser(strings.NewReader("")),
 			}
 		}
 
@@ -190,21 +186,16 @@ func (p *ProxyServer) getCert(host string) tls.Certificate {
 
 func generateCert(host string) (tls.Certificate, error) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	template := &x509.Certificate{
+	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			CommonName: host,
-		},
-		DNSNames: []string{host},
-		NotBefore: time.Now(),
-		NotAfter:  time.Now().Add(365 * 24 * time.Hour),
+		Subject:      pkix.Name{CommonName: host},
+		DNSNames:     []string{host},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
 	}
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	return tls.Certificate{
-		Certificate: [][]byte{certDER},
-		PrivateKey:  key,
-	}, nil
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }

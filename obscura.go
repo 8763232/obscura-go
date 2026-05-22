@@ -147,6 +147,30 @@ func (b *Browser) Serve(ctx context.Context, opts ...func(*launcher.Launcher)) e
 	return b.Connect(ctx, wsURL)
 }
 
+// ToServe 启动本地 obscura 并连接到指定的 CDP WebSocket 地址。
+// 与 Serve 类似但允许显式指定 wsURL，适用于配置固定端口的场景。
+func (b *Browser) ToServe(ctx context.Context, wsURL string, opts ...func(*launcher.Launcher)) error {
+	l := launcher.New()
+	for _, o := range opts {
+		o(l)
+	}
+	if l.BinPath == "" {
+		binName := "obscura"
+		if runtime.GOOS == "windows" {
+			binName = "obscura.exe"
+		}
+		l.BinPath = filepath.Join("launcher", runtime.GOOS+"_"+runtime.GOARCH, "latest", binName)
+	}
+
+	_, cleanup, err := l.Launch(ctx)
+	if err != nil {
+		return err
+	}
+	b.launchCleanup = cleanup
+
+	return b.Connect(ctx, wsURL)
+}
+
 // WithVersion 设置下载版本。
 func WithVersion(v string) func(*launcher.Launcher) {
 	return func(l *launcher.Launcher) { l.Version = v }
@@ -207,7 +231,7 @@ func (b *Browser) NewIncognito(ctx context.Context) (*Browser, error) {
 	incog := &Browser{
 		client:           b.client,
 		ctx:              b.ctx,
-			cancel:           func() {},
+		cancel:           func() {},
 		eventCh:          b.eventCh,
 		pages:            make(map[string]*Page),
 		pagesMu:          &sync.Mutex{},
