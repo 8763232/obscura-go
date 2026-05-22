@@ -32,6 +32,7 @@ type HijackRequest struct {
 	newBody    string
 
 	req *http.Request // 从 CDP 事件构建，供 LoadResponse 使用
+	jar *cookiejar.Jar // 跨 LoadResponse 调用的持久化 cookie jar
 }
 
 // Continue 标记此请求继续（修改后或原样）。
@@ -113,10 +114,30 @@ func (r *HijackResponse) FollowTo(newURL string) {
 	r.FollowURL = newURL
 }
 
-// LoadResponse 使用 HTTP 客户端发起真实网络请求，自动跟随重定向（最多 20 次），
-// 重定向链中使用 cookiejar 自动管理 Cookie（Set-Cookie → 后续请求的 Cookie 头）。
-// 收集所有 Set-Cookie 到 SetCookieHeaders，通过 handlePaused 自动注入 obscura。
-// 最终非重定向响应通过 res.Fulfill 返回。
+// FollowRedirect 修改内部请求 URL 为 location（支持相对路径）。
+// 配合 LoadResponse（已改为不自动跟随重定向）在 handler 循环中使用。
+func (req *HijackRequest) FollowRedirect(location string) {
+	// 解析 Location，支持相对路径
+	newURL, err := req.req.URL.Parse(location)
+	if err != nil {
+		return
+	}
+
+	newReq, _ := http.NewRequest("GET", newURL.String(), nil)
+	for k, vs := range req.req.Header {
+		for _, v := range vs {
+			newReq.Header.Add(k, v)
+		}
+	}
+	newReq.Header.Del("Host")
+	req.req = newReq
+	req.URL = newURL.String()
+}
+
+// LoadResponse 使用 HTTP 客户端发起网络请求，不自动跟随重定向。
+// 遇到 301/302 时通过 res.Fulfill(302, headers, "") 返回给 handler，
+// handler 可调用 req.FollowRedirect(location) 后再次 LoadResponse。
+// SetCookieHeaders 累积每次调用的结果，handlePaused 自动注入 obscura。
 func (req *HijackRequest) LoadResponse(client *http.Client, res *HijackResponse) error {
 	if client == nil {
 		client = http.DefaultClient
@@ -132,8 +153,10 @@ func (req *HijackRequest) LoadResponse(client *http.Client, res *HijackResponse)
 	}
 
 	// 使用 cookiejar 在重定向链中自动管理 Cookie
-	jar, _ := cookiejar.New(nil)
-	noRedirect.Jar = jar
+	if req.jar == nil {
+		req.jar, _ = cookiejar.New(nil)
+	}
+	noRedirect.Jar = req.jar
 
 	currentReq := req.req
 	var allCookies []string
@@ -144,7 +167,7 @@ func (req *HijackRequest) LoadResponse(client *http.Client, res *HijackResponse)
 			return err
 		}
 
-		// 收集 Set-Cookie
+		// 收集 Set-Cookie（累积，每次调用追加）
 		for _, sc := range httpResp.Header["Set-Cookie"] {
 			allCookies = append(allCookies, sc)
 		}
@@ -161,32 +184,23 @@ func (req *HijackRequest) LoadResponse(client *http.Client, res *HijackResponse)
 				}
 			}
 
-			res.SetCookieHeaders = allCookies
+			// 累积而非覆盖：handler 循环调用 LoadResponse 时保留历史的 Set-Cookie
+			res.SetCookieHeaders = append(res.SetCookieHeaders, allCookies...)
 			res.Fulfill(httpResp.StatusCode, headers, string(body))
 			return nil
 		}
 
-		// 重定向：提取 Location，构造新请求（cookiejar 自动携带 Cookie）
-		location := httpResp.Header.Get("Location")
+		// 重定向：不跟随，返回给 handler 处理
 		httpResp.Body.Close()
-		if location == "" {
-			break
-		}
-
-		newURL, err := currentReq.URL.Parse(location)
-		if err != nil {
-			return err
-		}
-
-		newReq, _ := http.NewRequest("GET", newURL.String(), nil)
-		for k, vs := range currentReq.Header {
-			for _, v := range vs {
-				if k != "Cookie" && k != "Host" {
-					newReq.Header.Add(k, v)
-				}
+		headers := make(map[string]string)
+		for k, vs := range httpResp.Header {
+			if len(vs) > 0 {
+				headers[k] = vs[0]
 			}
 		}
-		currentReq = newReq
+		res.SetCookieHeaders = append(res.SetCookieHeaders, allCookies...)
+		res.Fulfill(httpResp.StatusCode, headers, "")
+		return nil
 	}
 
 	return fmt.Errorf("obscura: 太多重定向")
