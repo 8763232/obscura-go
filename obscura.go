@@ -177,6 +177,14 @@ func (b *Browser) IgnoreCertErrors(ignore bool) error {
 	return b.call(b.ctx, "", proto.SecuritySetIgnoreCertificateErrors{Ignore: ignore})
 }
 
+// SetCookies 向浏览器注入 Cookie。
+func (b *Browser) SetCookies(ctx context.Context, cookies []*proto.CookieParam) error {
+	if len(cookies) == 0 {
+		return nil
+	}
+	return b.call(ctx, "", proto.NetworkSetCookies{Cookies: cookies})
+}
+
 // NewPage 创建新页面。
 func (b *Browser) NewPage(ctx context.Context) (*Page, error) {
 	var res proto.TargetCreateTargetResult

@@ -160,6 +160,12 @@ func (r *HijackRouter) handlePaused(e *proto.FetchRequestPaused) {
 			ResponseHeaders: headerMapToEntries(res.Headers),
 			Body:            base64.StdEncoding.EncodeToString([]byte(res.Body)),
 		})
+		// 注入 Cookie（Fetch.fulfillRequest 已发送，此调用可被安全 defer）
+		if len(res.SetCookieHeaders) > 0 {
+			r.browser.call(context.Background(), "", proto.NetworkSetCookies{
+				Cookies: parseSetCookieHeaders(res.SetCookieHeaders),
+			})
+		}
 
 	case res.failed:
 		r.browser.call(context.Background(), r.sessionID, proto.FetchFailRequest{
@@ -221,4 +227,15 @@ func headerMapToEntries(headers map[string]string) []proto.FetchHeaderEntry {
 		entries = append(entries, proto.FetchHeaderEntry{Name: k, Value: v})
 	}
 	return entries
+}
+
+// parseSetCookieHeaders 解析 Set-Cookie 头列表，返回 CDP CookieParam。
+func parseSetCookieHeaders(headers []string) []*proto.CookieParam {
+	var cookies []*proto.CookieParam
+	for _, raw := range headers {
+		if c := parseSetCookie(raw); c != nil {
+			cookies = append(cookies, c)
+		}
+	}
+	return cookies
 }
