@@ -135,6 +135,11 @@ func WithProxy(proxy string) func(*launcher.Launcher) {
 	return func(l *launcher.Launcher) { l.Proxy = proxy }
 }
 
+// IgnoreCertErrors 忽略 HTTPS 证书错误。
+func (b *Browser) IgnoreCertErrors(ignore bool) error {
+	return b.call(b.ctx, "", proto.SecuritySetIgnoreCertificateErrors{Ignore: ignore})
+}
+
 // NewPage 创建新页面。
 func (b *Browser) NewPage(ctx context.Context) (*Page, error) {
 	var res proto.TargetCreateTargetResult

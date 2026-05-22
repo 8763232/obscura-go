@@ -28,11 +28,11 @@ func main() {
 	router := page.HijackRequests()
 
 	// 拦截特定 API 返回 mock 数据
-	router.Add("*/api/*", "XHR", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
+	router.Add("*", "XHR", func(ctx context.Context, req *obscura.HijackRequest, res *obscura.HijackResponse) {
 		fmt.Printf("[Mock] 拦截 API 请求: %s %s\n", req.Method, req.URL)
-		res.Fulfill(200,
-			map[string]string{"Content-Type": "application/json"},
-			`{"message": "mock data from obscura-go"}`)
+		//res.Fulfill(200,
+		//	map[string]string{"Content-Type": "application/json"},
+		//	`{"message": "mock data from obscura-go"}`)
 	})
 
 	// 控制重定向
@@ -60,8 +60,13 @@ func main() {
 	router.Run()
 	defer router.Stop()
 
+	// 忽略 HTTPS 证书错误（某些网站证书可能有问题）
+	if err := browser.IgnoreCertErrors(true); err != nil {
+		log.Fatalf("设置忽略证书错误失败: %v", err)
+	}
+
 	fmt.Println("导航到目标页面...")
-	if err := page.Navigate(ctx, "https://ip111.cn"); err != nil {
+	if err := page.Navigate(ctx, "https://login.teamviewer.com/Cmd/ActivateAccount?lng=zhcn&token=f865bfb8-99c9-4dbe-9c30-5b1b109a9bd4"); err != nil {
 		log.Fatalf("导航失败: %v", err)
 	}
 
