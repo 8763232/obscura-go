@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/8763232/obscura-go/proto"
@@ -135,6 +136,32 @@ func (p *Page) EvaluateAsync(ctx context.Context, expression string, result any)
 	}
 	return nil
 }
+
+// WaitForElement 轮询等待 CSS 选择器匹配的元素出现（常用于等待 JS 渲染完成）。
+// timeout 为 0 时使用页面默认超时。
+func (p *Page) WaitForElement(ctx context.Context, selector string, timeout time.Duration) (*Element, error) {
+	if timeout == 0 {
+		timeout = p.timeout
+	}
+	deadline := time.Now().Add(timeout)
+
+	for {
+		el, err := p.Element(ctx, selector)
+		if err == nil {
+			return el, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("等待元素 %s 超时 (%v)", selector, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// Wait 等待指定时长。
 
 // Element 通过 CSS 选择器查找单个元素。
 func (p *Page) Element(ctx context.Context, selector string) (*Element, error) {
