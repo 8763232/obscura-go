@@ -4,6 +4,10 @@
 # 编译产物
 obscura-go
 
+# Launcher 二进制文件
+launcher/**/obscura
+launcher/**/obscura-worker
+
 # Launcher 缓存
 .cache/
 
